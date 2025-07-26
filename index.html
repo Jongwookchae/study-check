@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>주간 챌린지 인증 시스템</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
+    <script src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.10.7/dayjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.10.7/plugin/utc.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.10.7/plugin/timezone.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.10.7/plugin/weekday.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.10.7/plugin/isSameOrBefore.js"></script>
+    <style>
+        .calendar-cell {
+            aspect-ratio: 1;
+            min-height: 80px;
+        }
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+        }
+        .saturday {
+            background-color: #f3f4f6;
+        }
+        .completed {
+            background-color: #4CAF50 !important;
+            color: white;
+        }
+        .incomplete {
+            background-color: #d1d5db !important;
+        }
+        .current-day {
+            border: 2px solid #3b82f6;
+        }
+        @media (max-width: 640px) {
+            .calendar-cell {
+                min-height: 60px;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // dayjs 설정
+        dayjs.extend(window.dayjs_plugin_utc);
+        dayjs.extend(window.dayjs_plugin_timezone);
+        dayjs.extend(window.dayjs_plugin_weekday);
+        dayjs.extend(window.dayjs_plugin_isSameOrBefore);
+        dayjs.tz.setDefault('Asia/Seoul');
+        
+        // 기본 스터디원 데이터
+        const DEFAULT_MEMBERS = [
+            { id: 1, name: 'Sally' },
+            { id: 2, name: 'Jason' },
+            { id: 3, name: 'Rachel' },
+            { id: 4, name: 'Jay' },
+            { id: 5, name: 'Elena' },
+            { id: 6, name: 'Erin' }
+        ];
+
+        // LocalStorage 유틸리티 함수들
+        const StorageUtil = {
+            // 체크인 데이터 가져오기
+            getCheckInData: () => {
+                const data = localStorage.getItem('studyCheckInData');
+                return data ? JSON.parse(data) : {};
+            },
+            
+            // 체크인 데이터 저장하기
+            saveCheckInData: (data) => {
+                localStorage.setItem('studyCheckInData', JSON.stringify(data));
+            },
+            
+            // 특정 날짜의 체크인 상태 가져오기
+            getCheckInsForDate: (dateStr) => {
+                const data = StorageUtil.getCheckInData();
+                return data[dateStr] || {};
+            },
+            
+            // 특정 날짜의 체크인 상태 업데이트하기
+            updateCheckInsForDate: (dateStr, memberId, isChecked) => {
+                const data = StorageUtil.getCheckInData();
+                if (!data[dateStr]) {
+                    data[dateStr] = {};
+                }
+                data[dateStr][memberId] = isChecked;
+                StorageUtil.saveCheckInData(data);
+                return data[dateStr];
+            },
+            
+            // 스터디원 목록 가져오기
+            getMembers: () => {
+                const members = localStorage.getItem('studyMembers');
+                return members ? JSON.parse(members) : DEFAULT_MEMBERS;
+            },
+            
+            // 스터디원 목록 저장하기
+            saveMembers: (members) => {
+                localStorage.setItem('studyMembers', JSON.stringify(members));
+            }
+        };
+
+        // 체크인 모달 컴포넌트
+        const CheckInModal = ({ date, onClose }) => {
+            const members = StorageUtil.getMembers();
+            const [checkIns, setCheckIns] = React.useState({});
+            const dateStr = date.format('YYYY-MM-DD');
+            
+            React.useEffect(() => {
+                // 해당 날짜의 체크인 데이터를 로드
+                const savedCheckIns = StorageUtil.getCheckInsForDate(dateStr);
+                setCheckIns(savedCheckIns);
+            }, [dateStr]);
+            
+            const handleCheckInToggle = (memberId) => {
+                const isChecked = !checkIns[memberId];
+                const updatedCheckIns = StorageUtil.updateCheckInsForDate(dateStr, memberId, isChecked);
+                setCheckIns({...updatedCheckIns});
+            };
+            
+            const getCompletionStatus = () => {
+                const totalMembers = members.length;
+                const checkedMembers = Object.values(checkIns).filter(checked => checked).length;
+                return {
+                    total: totalMembers,
+                    checked: checkedMembers,
+                    isComplete: checkedMembers === totalMembers && totalMembers > 0
+                };
+            };
+            
+            const status = getCompletionStatus();
+            
+            return (
+                <div className="modal-overlay" onClick={onClose}>
+                    <div 
+                        className="bg-white p-6 rounded-lg shadow-xl w-11/12 max-w-md"
+                        onClick={e => e.stopPropagation()}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="modal-title"
+                    >
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 id="modal-title" className="text-xl font-bold text-gray-900">
+                                {date.format('YYYY년 M월 D일')} 스터디 인증
+                            </h3>
+                            <button 
+                                onClick={onClose}
+                                className="text-gray-400 hover:text-gray-500 focus:outline-none"
+                                aria-label="닫기"
+                            >
+                                <i className="fas fa-times"></i>
+                            </button>
+                        </div>
+                        
+                        <div className="mb-4">
+                            <div className="flex justify-between items-center mb-2">
+                                <p className="text-sm text-gray-500">인증 현황</p>
+                                <p className="text-sm font-medium">
+                                    {status.checked}/{status.total} 완료
+                                </p>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2.5">
+                                <div 
+                                    className="bg-blue-600 h-2.5 rounded-full transition-all duration-300 ease-in-out"
+                                    style={{ width: `${(status.checked / status.total) * 100}%` }}
+                                ></div>
+                            </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-3 mb-4">
+                            {members.map(member => (
+                                <div 
+                                    key={member.id}
+                                    className={`p-3 border rounded-lg flex items-center justify-between transition-colors ${
+                                        checkIns[member.id] ? 'bg-gray-100 text-gray-500' : 'bg-white'
+                                    }`}
+                                >
+                                    <span className="text-sm font-medium">{member.name}</span>
+                                    <button
+                                        onClick={() => handleCheckInToggle(member.id)}
+                                        className={`w-5 h-5 rounded focus:outline-none ${
+                                            checkIns[member.id] 
+                                                ? 'bg-blue-500 text-white' 
+                                                : 'border border-gray-300'
+                                        }`}
+                                        aria-checked={checkIns[member.id] || false}
+                                        role="checkbox"
+                                    >
+                                        {checkIns[member.id] && <i className="fas fa-check text-xs"></i>}
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                        
+                        <div className="flex justify-center">
+                            <button
+                                onClick={onClose}
+                                className={`px-4 py-2 rounded-md text-white font-medium transition-colors ${
+                                    status.isComplete 
+                                        ? 'bg-green-500 hover:bg-green-600' 
+                                        : 'bg-blue-500 hover:bg-blue-600'
+                                }`}
+                            >
+                                {status.isComplete ? '완료' : '확인'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        
+        // 상단 상태 표시 컴포넌트
+        const StatusBar = () => {
+            const [currentTime, setCurrentTime] = React.useState(dayjs().tz());
+            const [timeLeft, setTimeLeft] = React.useState({});
+            const [weeklyStatus, setWeeklyStatus] = React.useState({});
+            const members = StorageUtil.getMembers();
+            
+            React.useEffect(() => {
+                // 1초마다 현재 시간과 남은 시간 업데이트
+                const timer = setInterval(() => {
+                    const now = dayjs().tz();
+                    setCurrentTime(now);
+                    
+                    // 이번 주 토요일 자정 계산 (다음 토요일 00:00:00)
+                    const saturday = now.day() === 6 && now.hour() >= 0
+                        ? now.add(7, 'day').day(6).hour(0).minute(0).second(0)
+                        : now.day(6).hour(0).minute(0).second(0);
+                    
+                    if (now.isAfter(saturday)) {
+                        saturday.add(7, 'day');
+                    }
+                    
+                    const diff = saturday.diff(now, 'second');
+                    const days = Math.floor(diff / 86400);
+                    const hours = Math.floor((diff % 86400) / 3600);
+                    const minutes = Math.floor((diff % 3600) / 60);
+                    const seconds = diff % 60;
+                    
+                    setTimeLeft({ days, hours, minutes, seconds });
+                }, 1000);
+                
+                return () => clearInterval(timer);
+            }, []);
+            
+            React.useEffect(() => {
+                // 이번 주 토요일 계산
+                const now = currentTime;
+                const thisSaturday = now.day() === 6 && now.hour() >= 0
+                    ? now
+                    : now.day(6);
+                const saturdayStr = thisSaturday.format('YYYY-MM-DD');
+                
+                // 이번 주 인증 현황 업데이트
+                const checkIns = StorageUtil.getCheckInsForDate(saturdayStr);
+                
+                const weekStatus = {};
+                members.forEach(member => {
+                    weekStatus[member.id] = checkIns && checkIns[member.id] ? true : false;
+                });
+                
+                setWeeklyStatus(weekStatus);
+            }, [currentTime]);
+            
+            const getWeekRangeText = () => {
+                const now = currentTime;
+                // 이번 주의 일요일과 토요일 구하기
+                const sunday = now.day(0);
+                const saturday = now.day(6);
+                return `${sunday.format('M월 D일')} - ${saturday.format('M월 D일')}`;
+            };
+            
+            return (
+                <div className="bg-white rounded-lg shadow p-4 mb-6">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4">
+                        <h2 className="text-xl font-bold text-gray-900">이번 주 인증 현황</h2>
+                        <p className="text-sm text-gray-500">{getWeekRangeText()}</p>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+                        {members.map(member => (
+                            <div
+                                key={member.id}
+                                className={`p-3 rounded-lg text-center ${
+                                    weeklyStatus[member.id]
+                                        ? 'bg-green-100 text-green-800'
+                                        : 'bg-gray-100 text-gray-600'
+                                }`}
+                            >
+                                <p className="font-medium">{member.name}</p>
+                                <p className="text-xs mt-1">
+                                    {weeklyStatus[member.id] 
+                                        ? <span><i className="fas fa-check-circle"></i> 완료</span> 
+                                        : <span><i className="fas fa-clock"></i> 대기중</span>
+                                    }
+                                </p>
+                            </div>
+                        ))}
+                    </div>
+                    
+                    <div className="bg-blue-50 p-3 rounded-lg">
+                        <p className="text-blue-800 font-medium mb-1">마감까지 남은 시간</p>
+                        <div className="flex justify-center space-x-3 text-center">
+                            <div className="bg-white px-2 py-1 rounded shadow">
+                                <span className="text-lg font-bold">{timeLeft.days}</span>
+                                <p className="text-xs text-gray-500">일</p>
+                            </div>
+                            <div className="bg-white px-2 py-1 rounded shadow">
+                                <span className="text-lg font-bold">{timeLeft.hours}</span>
+                                <p className="text-xs text-gray-500">시간</p>
+                            </div>
+                            <div className="bg-white px-2 py-1 rounded shadow">
+                                <span className="text-lg font-bold">{timeLeft.minutes}</span>
+                                <p className="text-xs text-gray-500">분</p>
+                            </div>
+                            <div className="bg-white px-2 py-1 rounded shadow">
+                                <span className="text-lg font-bold">{timeLeft.seconds}</span>
+                                <p className="text-xs text-gray-500">초</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        
+        // 캘린더 컴포넌트
+        const Calendar = () => {
+            const [currentDate, setCurrentDate] = React.useState(dayjs.tz('2025-07-01'));
+            const [selectedDate, setSelectedDate] = React.useState(null);
+            
+            const goToPreviousMonth = () => {
+                setCurrentDate(currentDate.subtract(1, 'month'));
+            };
+            
+            const goToNextMonth = () => {
+                setCurrentDate(currentDate.add(1, 'month'));
+            };
+            
+            const handleDateClick = (date) => {
+                // 토요일(6)인 경우만 모달 열기
+                if (date.day() === 6) {
+                    setSelectedDate(date);
+                }
+            };
+            
+            const closeModal = () => {
+                setSelectedDate(null);
+            };
+            
+            const getCalendarDates = () => {
+                const firstDayOfMonth = currentDate.startOf('month');
+                const lastDayOfMonth = currentDate.endOf('month');
+                
+                // 첫 주의 시작일 (이전 달의 날짜들을 포함)
+                let weekStart = firstDayOfMonth.day() === 0 
+                    ? firstDayOfMonth 
+                    : firstDayOfMonth.subtract(firstDayOfMonth.day(), 'day');
+                
+                // 마지막 주의 종료일 (다음 달의 날짜들을 포함)
+                let weekEnd = lastDayOfMonth.day() === 6 
+                    ? lastDayOfMonth 
+                    : lastDayOfMonth.add(6 - lastDayOfMonth.day(), 'day');
+                
+                const dates = [];
+                let day = weekStart;
+                
+                while (day.isSameOrBefore(weekEnd, 'day')) {
+                    dates.push(day);
+                    day = day.add(1, 'day');
+                }
+                
+                return dates;
+            };
+            
+            const getDayCellClass = (date) => {
+                const classes = ['calendar-cell', 'p-2', 'border', 'relative'];
+                const dateStr = date.format('YYYY-MM-DD');
+                const today = dayjs().tz().format('YYYY-MM-DD');
+                
+                // 이번 달이 아닌 날짜는 연하게 표시
+                if (date.month() !== currentDate.month()) {
+                    classes.push('text-gray-300');
+                }
+                
+                // 토요일 강조
+                if (date.day() === 6) {
+                    classes.push('saturday');
+                }
+                
+                // 오늘 날짜 표시
+                if (dateStr === today) {
+                    classes.push('current-day');
+                }
+                
+                // 토요일이고 이번 달인 경우 체크인 상태에 따라 색상 지정
+                if (date.day() === 6 && date.month() === currentDate.month()) {
+                    const checkIns = StorageUtil.getCheckInsForDate(dateStr);
+                    const members = StorageUtil.getMembers();
+                    
+                    if (checkIns && Object.keys(checkIns).length > 0) {
+                        const checkedCount = Object.values(checkIns).filter(Boolean).length;
+                        
+                        if (checkedCount === members.length) {
+                            classes.push('completed');
+                        } else {
+                            classes.push('incomplete');
+                        }
+                    }
+                }
+                
+                return classes.join(' ');
+            };
+            
+            const calendarDates = getCalendarDates();
+            const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+            
+            return (
+                <div className="bg-white rounded-lg shadow p-4">
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-xl font-bold text-gray-900">
+                            {currentDate.format('YYYY년 M월')}
+                        </h2>
+                        <div className="flex space-x-2">
+                            <button 
+                                onClick={goToPreviousMonth}
+                                className="p-2 rounded-md hover:bg-gray-100 focus:outline-none"
+                                aria-label="이전 달"
+                            >
+                                <i className="fas fa-chevron-left"></i>
+                            </button>
+                            <button 
+                                onClick={goToNextMonth}
+                                className="p-2 rounded-md hover:bg-gray-100 focus:outline-none"
+                                aria-label="다음 달"
+                            >
+                                <i className="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-7 gap-1 mb-1">
+                        {weekdays.map(day => (
+                            <div key={day} className="text-center font-medium py-1">
+                                {day}
+                            </div>
+                        ))}
+                    </div>
+                    
+                    <div className="grid grid-cols-7 gap-1">
+                        {calendarDates.map(date => (
+                            <div 
+                                key={date.format()}
+                                className={getDayCellClass(date)}
+                                onClick={() => handleDateClick(date)}
+                                tabIndex={date.day() === 6 ? 0 : -1}
+                                role={date.day() === 6 ? "button" : ""}
+                                aria-label={date.day() === 6 ? `${date.format('YYYY년 M월 D일')} 인증하기` : ""}
+                            >
+                                <div className="flex justify-between">
+                                    <span>{date.date()}</span>
+                                    {date.day() === 6 && date.month() === currentDate.month() && (
+                                        <span className="text-blue-500">
+                                            <i className="fas fa-check-circle"></i>
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    
+                    {selectedDate && (
+                        <CheckInModal 
+                            date={selectedDate} 
+                            onClose={closeModal} 
+                        />
+                    )}
+                </div>
+            );
+        };
+        
+        // 앱 컴포넌트
+        const App = () => {
+            React.useEffect(() => {
+                // 최초 실행 시 기본 멤버 데이터 설정
+                if (!localStorage.getItem('studyMembers')) {
+                    StorageUtil.saveMembers(DEFAULT_MEMBERS);
+                }
+            }, []);
+            
+            return (
+                <div className="container mx-auto py-8 px-4">
+                    <header className="mb-6">
+                        <h1 className="text-2xl font-bold text-gray-900 text-center">주간 챌린지 인증 시스템</h1>
+                    </header>
+                    
+                    <StatusBar />
+                    <Calendar />
+                    
+                    <footer className="mt-8 text-center text-gray-500 text-sm">
+                        <p>© 2025 주간 챌린지 인증 시스템</p>
+                    </footer>
+                </div>
+            );
+        };
+        
+        // React 앱 렌더링
+        ReactDOM.render(
+            <App />,
+            document.getElementById('root')
+        );
+    </script>
+</body>
+</html>
